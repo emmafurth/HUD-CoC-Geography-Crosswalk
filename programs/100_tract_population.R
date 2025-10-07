@@ -18,9 +18,11 @@ tract_pop_file <- "./output/tract_population.csv"
 #  Step 1: Set input parameters
 ################################################################################
 
-# Need to add your own Census API key below
-census_api_key("22c3b2e2538dd22d66c03c745f011d4fa1bc5bcf")
-us <- unique(fips_codes$state)[1:51]
+# # Need to add your own Census API key below
+# census_api_key("22c3b2e2538dd22d66c03c745f011d4fa1bc5bcf") # OLD KEY
+census_api_key("9ebdc02433ec76b6c2ad41322248df0d2dcc1899")
+# us <- unique(fips_codes$state)[1:51]
+us <- c("MD") #TODO: Remove this line
 years <- 2016
 
 ################################################################################

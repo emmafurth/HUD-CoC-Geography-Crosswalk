@@ -1,7 +1,7 @@
 ################################################################################
 # PROGRAM NAME:    200_tract_coc_match
 # PROGRAM AUTHOR:  Tom Byrne (tbyrne@bu.ed)
-# PROGRAM PURPOSE: To conduct geospatial match of Census tracts and 2017 HUD 
+# PROGRAM PURPOSE: To conduct geospatial match of Census tracts and 2017 HUD
 #                  Continuums of Care (CoCs) based on tract centroid points
 ################################################################################
 
@@ -10,14 +10,14 @@ library(tigris)
 library(stringr)
 library(tidycensus)
 library(sp)
-library(rgdal)
+# library(rgdal)
 library(dplyr)
 library(tidyr)
-library(maptools)
+# library(maptools)
 library(PBSmapping)
 library(stringr)
 library(sf)
-library(rgeos)
+# library(rgeos)
 library(car)
 library(raster)
 library(sf)
@@ -40,21 +40,25 @@ tract_coc_output <- "./output/tract_coc_match.csv"
 # 1) Tigerline tract shapefile from Census (clipped to CoC boundaries)
 
 
-tract <- readOGR(dsn = "./output", layer = "clipped_tract")
+tract <- read_sf(dsn = "./output", layer = "clipped_tract")
 
 # also read in non-clipped file to add clipped tracts (i.e. those tracts that
 # are not part of a CoC later)
 
-tract_no_clip <-  readOGR("./data/tlgdb_2017_a_us_substategeo.gdb/tlgdb_2017_a_us_substategeo.gdb", 
-                          "Census_Tract")
+# tract_no_clip <-  read_sf("./data/tlgdb_2017_a_us_substategeo.gdb/tlgdb_2017_a_us_substategeo.gdb", 
+#                           "Census_Tract")
+# TODO: change this back to nationwide
+tract_no_clip <- read_sf("./data/tlgdb_2017_a_24_md.gdb/tlgdb_2017_a_24_md.gdb", "Census_Tract")
 
-tract_no_clip_df <- tract_no_clip@data[c("GEOID", "NAMELSAD", "ALAND", "AWATER")] 
+# tract_no_clip_df <- tract_no_clip@data[c("GEOID", "NAMELSAD", "ALAND", "AWATER")] 
 
 # 2)  CoC shapefile from HUD
 
-cocs <- readOGR("./data/CoC_GIS_NatlTerrDC_Shapefile_2017/FY17_CoC_National_Bnd.gdb", 
+cocs <- read_sf("./data/CoC_GIS_NatlTerrDC_Shapefile_2017/FY17_CoC_National_Bnd.gdb", 
                 "FY17_CoC_National_Bnd")
+cocs <- st_make_valid(cocs)
 
+cocs <- cocs |> filter(STATE_NAME=="Maryland") # TODO: Remove this line
 # 3) 2017 PIT data from HUD
 #    Change variiable names as needed to match shapefile.
 #    Create flag for CoCs being in PIT. Also recode names
@@ -66,9 +70,11 @@ pit_2017 <- read.csv("./data/2017_pit.csv", stringsAsFactors = FALSE) %>%
          CoC_Name_PIT = CoC.Name,
          in_2017_PIT = "Yes",
           COCNUM = ifelse(COCNUM == "MO-604a", "MO-604", COCNUM)) %>%
+  filter(startsWith(COCNUM, "MD")) %>% #TODO: Remove this line
   dplyr::select(COCNUM,
          CoC_Name_PIT,
          in_2017_PIT)
+
 
 
 # 4) Tract population
@@ -90,65 +96,77 @@ tract_population$GEOID <- str_pad(tract_population$GEOID, 11, pad = "0")
 # https://stackoverflow.com/questions/44327994/calculate-centroid-within-inside-a-spatialpolygon
 
 set.seed(3456)
-gCentroidWithin <- function(pol) {
-  require(rgeos)
+# gCentroidWithin <- function(pol) {
+#   # require(rgeos)
+#   require(sf)
+# 
+#   pol$.tmpID <- 1:length(pol)
+#   # initially create centroid points with gCentroid
+#   # initialCents <- gCentroid(pol, byid = T)
+#   initalCents <- st_centroid(pol)
+#   
+#   # # add data of the polygons to the centroids
+#   centsDF <- SpatialPointsDataFrame(initialCents, pol)
+#   centsDF$isCentroid <- TRUE
+#   
+#   
+#   # check whether the centroids are actually INSIDE their polygon
+#   centsInOwnPoly <- sapply(1:length(pol), function(x) {
+#     st_intersects(pol[x,], centsDF[x, ])
+#   })
+#   # substitue outside centroids with points INSIDE the polygon
+#   newPoints <- SpatialPointsDataFrame(st_point_on_surface(pol[!centsInOwnPoly, ]), 
+#                                       pol@data[!centsInOwnPoly,])
+#   newPoints$isCentroid <- FALSE
+#   centsDF <- rbind(centsDF[centsInOwnPoly,], newPoints)
+#   
+#   # order the points like their polygon counterpart based on `.tmpID`
+#   centsDF <- centsDF[order(centsDF$.tmpID),]
+#   
+#   # remove `.tmpID` column
+#   centsDF@data <- centsDF@data[, - which(names(centsDF@data) == ".tmpID")]
+#   
+#   cat(paste(length(pol), "polygons;", sum(centsInOwnPoly), "actual centroids;", 
+#             sum(!centsInOwnPoly), "Points corrected \n"))
+#   
+#   return(centsDF)
+# }
 
-  pol$.tmpID <- 1:length(pol)
-  # initially create centroid points with gCentroid
-  initialCents <- gCentroid(pol, byid = T)
-  
-  # add data of the polygons to the centroids
-  centsDF <- SpatialPointsDataFrame(initialCents, pol@data)
-  centsDF$isCentroid <- TRUE
-  
-  # check whether the centroids are actually INSIDE their polygon
-  centsInOwnPoly <- sapply(1:length(pol), function(x) {
-    gIntersects(pol[x,], centsDF[x, ])
-  })
-  # substitue outside centroids with points INSIDE the polygon
-  newPoints <- SpatialPointsDataFrame(gPointOnSurface(pol[!centsInOwnPoly, ], 
-                                                      byid = T), 
-                                      pol@data[!centsInOwnPoly,])
-  newPoints$isCentroid <- FALSE
-  centsDF <- rbind(centsDF[centsInOwnPoly,], newPoints)
-  
-  # order the points like their polygon counterpart based on `.tmpID`
-  centsDF <- centsDF[order(centsDF$.tmpID),]
-  
-  # remove `.tmpID` column
-  centsDF@data <- centsDF@data[, - which(names(centsDF@data) == ".tmpID")]
-  
-  cat(paste(length(pol), "polygons;", sum(centsInOwnPoly), "actual centroids;", 
-            sum(!centsInOwnPoly), "Points corrected \n"))
-  
-  return(centsDF)
-}
+tract_centroids <- tract %>% 
+  mutate(geometry = if_else(st_intersects(st_centroid(geometry), geometry) %>% lengths > 0,
+                                  st_centroid(geometry),
+                                  st_point_on_surface(geometry))) #%>%
 
-
-tract_centroids <- gCentroidWithin(tract)
+# tract_centroids <- tract |> mutate(centroid_within = st_intersects(st_centroid(geometry), geometry) %>% lengths > 0)
 
 # Convert to dataframe
-tract_centroids_final <- as.data.frame(tract_centroids)
+# tract_centroids_final <- as.data.frame(tract_centroids)
 
-coordinates(tract_centroids_final) <- c("x", "y")
+# coordinates(tract_centroids_final$geometry) <- c("x", "y")
 
 # Assign coordinate reference system (CRS) to shapefile to match CoC CRS 
 
-proj4string(tract_centroids_final) <- CRS("+proj=longlat +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +no_defs")
+# proj4string(tract_centroids_final) <- CRS("+proj=longlat +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +no_defs")
 
 ################################################################################
 #  Step 3:  Match tract centroids to Cocs in which they are located
 ################################################################################
-tr_coc <- over(tract_centroids_final, cocs)
+# tr_coc <- st_intersects(tract_centroids, cocs)
 
 # Extract data frame from points polygon
-tract_df <- data.frame(tract_centroids_final@data)
+# tract_df <- data.frame(tract_centroids_final@data)
 
 # Add tract IDS to CoC-tract dataset and get rid of unnecessary colums
 # Create a flag for CoCs that are in the HUD shapelie
-tract_coc_join <- cbind(tr_coc, tract_df) %>%
-  dplyr::select(-c(Shape_Length, isCentroid, INTPTLON, INTPTLAT,  ALAND, AWATER)) %>%
+# tract_coc_join <- cbind(tr_coc, tract_centroids) #%>%
+  # dplyr::select(-c(Shape_Length, isCentroid, INTPTLON, INTPTLAT,  ALAND, AWATER)) %>%
+  # mutate(in_shapefile = "Yes")
+
+tract_coc_join <- st_join(cocs, tract_centroids,join=st_intersects, left = TRUE) %>%
+  dplyr::select(-c(Shape_Length, INTPTLON, INTPTLAT,  ALAND, AWATER)) %>%
   mutate(in_shapefile = "Yes")
+
+st_geometry(tract_coc_join) <- NULL
 
 ################################################################################
 #  Step 4:  Merge in 2017 PIT data to identify CoCs that are not in PIT, 
@@ -158,7 +176,7 @@ tract_coc_join <- cbind(tr_coc, tract_df) %>%
 #   in poverty from American Community Survey
 ################################################################################
 
-non_clipped_tracts <- data.frame(GEOID = tract_no_clip@data$GEOID)
+non_clipped_tracts <- data.frame(GEOID = tract_no_clip$GEOID)
 
 all_tracts <- full_join(tract_coc_join, non_clipped_tracts, by = "GEOID")
 
@@ -169,7 +187,7 @@ tract_coc_final <- full_join(all_tracts, pit_2017, by = "COCNUM") %>%
          in_2017_PIT  = ifelse(is.na(in_2017_PIT), "No", in_2017_PIT),
          in_2017_PIT  = ifelse(is.na(COCNUM), NA, in_2017_PIT)) %>%
   left_join(., tract_population, by = "GEOID") %>%
-  dplyr::select(COCNUM, COCNAME, CoC_Name_PIT, GEOID, in_shapefile, in_2017_PIT, 
+  dplyr::select(COCNUM, COCNAME, CoC_Name_PIT, GEOID, in_shapefile, in_2017_PIT,
          total_population, total_pop_in_poverty)
 
 # Rename columns
