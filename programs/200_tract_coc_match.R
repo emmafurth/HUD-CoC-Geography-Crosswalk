@@ -27,6 +27,9 @@ library(nngeo)
 
 tract_coc_output <- "./output/tract_coc_match.csv"
 
+centroids_file <- "./output/centroids.rds" # TODO: Remove this line
+output_location <- "./output" # TODO: Remove this line
+
 ################################################################################
 #  Step 1: Read in necessary data
 ################################################################################
@@ -39,26 +42,29 @@ tract_coc_output <- "./output/tract_coc_match.csv"
 
 # 1) Tigerline tract shapefile from Census (clipped to CoC boundaries)
 
-
 tract <- read_sf(dsn = "./output", layer = "clipped_tract")
 
 # also read in non-clipped file to add clipped tracts (i.e. those tracts that
 # are not part of a CoC later)
 
-# tract_no_clip <-  read_sf("./data/tlgdb_2017_a_us_substategeo.gdb/tlgdb_2017_a_us_substategeo.gdb", 
-#                           "Census_Tract")
-# TODO: change this back to nationwide
-tract_no_clip <- read_sf("./data/tlgdb_2017_a_24_md.gdb/tlgdb_2017_a_24_md.gdb", "Census_Tract")
+tract_no_clip <-  read_sf("./data/tlgdb_2017_a_us_substategeo.gdb/tlgdb_2017_a_us_substategeo.gdb",
+                          "Census_Tract")
+
+# system.time(tract <- tract %>% filter(startsWith(GEOID, '01'))) # TODO: Remove this
+# system.time(tract_no_clip <- tract_no_clip %>% filter(startsWith(GEOID, '01'))) # TODO: remove this
+
+# # TODO: change this back to nationwide
+# tract_no_clip <- read_sf("./data/tlgdb_2017_a_24_md.gdb/tlgdb_2017_a_24_md.gdb", "Census_Tract")
 
 # tract_no_clip_df <- tract_no_clip@data[c("GEOID", "NAMELSAD", "ALAND", "AWATER")] 
 
 # 2)  CoC shapefile from HUD
 
-cocs <- read_sf("./data/CoC_GIS_NatlTerrDC_Shapefile_2017/FY17_CoC_National_Bnd.gdb", 
+cocs <- read_sf("./data/CoC_GIS_NatlTerrDC_Shapefile_2017/FY17_CoC_National_Bnd.gdb",
                 "FY17_CoC_National_Bnd")
 cocs <- st_make_valid(cocs)
 
-cocs <- cocs |> filter(STATE_NAME=="Maryland") # TODO: Remove this line
+# cocs <- cocs |> filter(STATE_NAME=="Alabama") # TODO: Remove this line
 # 3) 2017 PIT data from HUD
 #    Change variiable names as needed to match shapefile.
 #    Create flag for CoCs being in PIT. Also recode names
@@ -70,7 +76,7 @@ pit_2017 <- read.csv("./data/2017_pit.csv", stringsAsFactors = FALSE) %>%
          CoC_Name_PIT = CoC.Name,
          in_2017_PIT = "Yes",
           COCNUM = ifelse(COCNUM == "MO-604a", "MO-604", COCNUM)) %>%
-  filter(startsWith(COCNUM, "MD")) %>% #TODO: Remove this line
+  # filter(startsWith(COCNUM, "MD")) %>% #TODO: Remove this line
   dplyr::select(COCNUM,
          CoC_Name_PIT,
          in_2017_PIT)
@@ -132,10 +138,44 @@ set.seed(3456)
 #   return(centsDF)
 # }
 
-tract_centroids <- tract %>% 
-  mutate(geometry = if_else(st_intersects(st_centroid(geometry), geometry) %>% lengths > 0,
-                                  st_centroid(geometry),
-                                  st_point_on_surface(geometry))) #%>%
+# tract_centroids <- tract %>% 
+#   mutate(geometry = if_else(st_intersects(st_centroid(geometry), geometry) %>% lengths > 0,
+#                                   st_centroid(geometry),
+#                                   st_point_on_surface(geometry))) #%>%
+
+system.time(tract_centroids <- tract %>%
+              mutate(centroid_geometry = st_centroid(geometry)))
+
+system.time(naive_centroids <- tract_centroids %>%
+              mutate(geometry = centroid_geometry))
+
+system.time(naive_centroids <- naive_centroids %>%
+              mutate(contains_centroid = st_intersects(centroid_geometry, geometry) %>% lengths > 0))
+
+system.time(naive_centroids <- naive_centroids %>%
+              mutate(pseudo_centroid = if_else(contains_centroid,
+                                        centroid_geometry,
+                                        st_point_on_surface(geometry))))
+
+save(naive_centroids, file = "./output/naive_centroids.rds") # TODO: Remove this
+write_sf(obj = naive_centroids, dsn = "./output", layer = "naive_centroids",
+         driver = "ESRI Shapefile") # TODO: Remove this
+
+system.time(tract_centroids <- tract_centroids %>%
+              mutate(contains_centroid = st_contains(centroid_geometry, geometry) %>% lengths > 0))
+
+
+
+  
+# RUN THIS LINE NEXT
+system.time(tract_centroids <- tract_centroids %>%
+              mutate(geometry = if_else(contains_centroid, 
+                                        centroid_geometry, 
+                                        st_point_on_surface(geometry))))
+
+system.time(tract_centroids <- tract_centroids %>%
+              mutate(touches_centroid = st_touches(centroid_geometry, geometry) %>% lengths > 0))
+
 
 # tract_centroids <- tract |> mutate(centroid_within = st_intersects(st_centroid(geometry), geometry) %>% lengths > 0)
 
@@ -204,6 +244,10 @@ names(tract_coc_final) <- c("coc_number",
 #  Step 5:  Output file 
 ################################################################################
 write.csv(tract_coc_final, file = tract_coc_output, row.names = FALSE)
+
+save(tract_centroids, file = centroids_file) # TODO: Remove this
+write_sf(obj = tract_centroids, dsn = output_location, layer = "centroid",
+                     driver = "ESRI Shapefile") # TODO: Remove this
 
 # remove all files
 rm(list = ls())

@@ -1,8 +1,8 @@
 ################################################################################
 # PROGRAM NAME:    500_run_all_programs
 # PROGRAM AUTHOR:  Tom Byrne (tbyrne@bu.edu)
-# PROGRAM PURPOSE: To run all files used in matching HUD Coc geographies to 
-#                  Census tracts and counties 
+# PROGRAM PURPOSE: To run all files used in matching HUD Coc geographies to
+#                  Census tracts and counties
 ################################################################################
 
 source("./programs/000_clip_tract_shapefile.R")
