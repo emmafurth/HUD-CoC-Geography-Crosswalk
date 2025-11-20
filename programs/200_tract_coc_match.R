@@ -27,9 +27,6 @@ library(nngeo)
 
 tract_coc_output <- "./output/tract_coc_match.csv"
 
-centroids_file <- "./output/centroids.rds" # TODO: Remove this line
-output_location <- "./output" # TODO: Remove this line
-
 ################################################################################
 #  Step 1: Read in necessary data
 ################################################################################
@@ -50,23 +47,24 @@ tract <- read_sf(dsn = "./output", layer = "clipped_tract")
 tract_no_clip <-  read_sf("./data/tlgdb_2017_a_us_substategeo.gdb/tlgdb_2017_a_us_substategeo.gdb",
                           "Census_Tract")
 
-# system.time(tract <- tract %>% filter(startsWith(GEOID, '01'))) # TODO: Remove this
-# system.time(tract_no_clip <- tract_no_clip %>% filter(startsWith(GEOID, '01'))) # TODO: remove this
-
-# # TODO: change this back to nationwide
-# tract_no_clip <- read_sf("./data/tlgdb_2017_a_24_md.gdb/tlgdb_2017_a_24_md.gdb", "Census_Tract")
-
-# tract_no_clip_df <- tract_no_clip@data[c("GEOID", "NAMELSAD", "ALAND", "AWATER")] 
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# EF2025: Uncomment this to run code only on a single state.
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# tract <- tract %>% filter(startsWith(GEOID, '01'))
+# tract_no_clip <- tract_no_clip %>% filter(startsWith(GEOID, '01'))
 
 # 2)  CoC shapefile from HUD
-
 cocs <- read_sf("./data/CoC_GIS_NatlTerrDC_Shapefile_2017/FY17_CoC_National_Bnd.gdb",
                 "FY17_CoC_National_Bnd")
 cocs <- st_make_valid(cocs)
 
-# cocs <- cocs |> filter(STATE_NAME=="Alabama") # TODO: Remove this line
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# EF2025: Uncomment this to run code only on a single state.
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# cocs <- cocs |> filter(STATE_NAME=="Alabama")
+
 # 3) 2017 PIT data from HUD
-#    Change variiable names as needed to match shapefile.
+#    Change variable names as needed to match shapefile.
 #    Create flag for CoCs being in PIT. Also recode names
 #    of 1 CoCs in 2017 PIT file to match how it is named
 #    in shapefile 
@@ -76,7 +74,6 @@ pit_2017 <- read.csv("./data/2017_pit.csv", stringsAsFactors = FALSE) %>%
          CoC_Name_PIT = CoC.Name,
          in_2017_PIT = "Yes",
           COCNUM = ifelse(COCNUM == "MO-604a", "MO-604", COCNUM)) %>%
-  # filter(startsWith(COCNUM, "MD")) %>% #TODO: Remove this line
   dplyr::select(COCNUM,
          CoC_Name_PIT,
          in_2017_PIT)
@@ -93,7 +90,7 @@ tract_population <- read.csv("./output/tract_population.csv", stringsAsFactors =
 tract_population$GEOID <- str_pad(tract_population$GEOID, 11, pad = "0")
 
 ################################################################################
-#  Step 2:Convert tract shapefile to points for matching with CoCs 
+#  Step 2: Convert tract shapefile to points for matching with CoCs 
 ################################################################################
 
 # We will use a handy function (gCentroidWithin) for extracting polygon centroid 
@@ -101,109 +98,32 @@ tract_population$GEOID <- str_pad(tract_population$GEOID, 11, pad = "0")
 # moon shaped)  The function is taken from a Stackoverflowpost: 
 # https://stackoverflow.com/questions/44327994/calculate-centroid-within-inside-a-spatialpolygon
 
-set.seed(3456)
-# gCentroidWithin <- function(pol) {
-#   # require(rgeos)
-#   require(sf)
-# 
-#   pol$.tmpID <- 1:length(pol)
-#   # initially create centroid points with gCentroid
-#   # initialCents <- gCentroid(pol, byid = T)
-#   initalCents <- st_centroid(pol)
-#   
-#   # # add data of the polygons to the centroids
-#   centsDF <- SpatialPointsDataFrame(initialCents, pol)
-#   centsDF$isCentroid <- TRUE
-#   
-#   
-#   # check whether the centroids are actually INSIDE their polygon
-#   centsInOwnPoly <- sapply(1:length(pol), function(x) {
-#     st_intersects(pol[x,], centsDF[x, ])
-#   })
-#   # substitue outside centroids with points INSIDE the polygon
-#   newPoints <- SpatialPointsDataFrame(st_point_on_surface(pol[!centsInOwnPoly, ]), 
-#                                       pol@data[!centsInOwnPoly,])
-#   newPoints$isCentroid <- FALSE
-#   centsDF <- rbind(centsDF[centsInOwnPoly,], newPoints)
-#   
-#   # order the points like their polygon counterpart based on `.tmpID`
-#   centsDF <- centsDF[order(centsDF$.tmpID),]
-#   
-#   # remove `.tmpID` column
-#   centsDF@data <- centsDF@data[, - which(names(centsDF@data) == ".tmpID")]
-#   
-#   cat(paste(length(pol), "polygons;", sum(centsInOwnPoly), "actual centroids;", 
-#             sum(!centsInOwnPoly), "Points corrected \n"))
-#   
-#   return(centsDF)
-# }
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# EF2025: For some polygons the centroid falls outside the polygon's boundaries 
+# (e.g.: when the polygon is a crescent moon shape). In those cases, we will use 
+# st_point_on_surface in place of the centroid.
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# tract_centroids <- tract %>% 
-#   mutate(geometry = if_else(st_intersects(st_centroid(geometry), geometry) %>% lengths > 0,
-#                                   st_centroid(geometry),
-#                                   st_point_on_surface(geometry))) #%>%
+tract_centroids <- tract %>%
+              mutate(centroid_geometry = st_centroid(geometry))
 
-system.time(tract_centroids <- tract %>%
-              mutate(centroid_geometry = st_centroid(geometry)))
+tract_centroids <- tract_centroids %>%
+              mutate(contains_centroid = st_contains(centroid_geometry, geometry) %>% lengths > 0)
 
-system.time(naive_centroids <- tract_centroids %>%
-              mutate(geometry = centroid_geometry))
-
-system.time(naive_centroids <- naive_centroids %>%
-              mutate(contains_centroid = st_intersects(centroid_geometry, geometry) %>% lengths > 0))
-
-system.time(naive_centroids <- naive_centroids %>%
-              mutate(pseudo_centroid = if_else(contains_centroid,
-                                        centroid_geometry,
-                                        st_point_on_surface(geometry))))
-
-save(naive_centroids, file = "./output/naive_centroids.rds") # TODO: Remove this
-write_sf(obj = naive_centroids, dsn = "./output", layer = "naive_centroids",
-         driver = "ESRI Shapefile") # TODO: Remove this
-
-system.time(tract_centroids <- tract_centroids %>%
-              mutate(contains_centroid = st_contains(centroid_geometry, geometry) %>% lengths > 0))
-
-
-
-  
-# RUN THIS LINE NEXT
-system.time(tract_centroids <- tract_centroids %>%
+tract_centroids <- tract_centroids %>%
               mutate(geometry = if_else(contains_centroid, 
                                         centroid_geometry, 
-                                        st_point_on_surface(geometry))))
+                                        st_point_on_surface(geometry)))
 
-system.time(tract_centroids <- tract_centroids %>%
-              mutate(touches_centroid = st_touches(centroid_geometry, geometry) %>% lengths > 0))
-
-
-# tract_centroids <- tract |> mutate(centroid_within = st_intersects(st_centroid(geometry), geometry) %>% lengths > 0)
-
-# Convert to dataframe
-# tract_centroids_final <- as.data.frame(tract_centroids)
-
-# coordinates(tract_centroids_final$geometry) <- c("x", "y")
-
-# Assign coordinate reference system (CRS) to shapefile to match CoC CRS 
-
-# proj4string(tract_centroids_final) <- CRS("+proj=longlat +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +no_defs")
+# tract_centroids <- tract_centroids %>%
+#               mutate(touches_centroid = st_touches(centroid_geometry, geometry) %>% lengths > 0)
 
 ################################################################################
 #  Step 3:  Match tract centroids to Cocs in which they are located
 ################################################################################
-# tr_coc <- st_intersects(tract_centroids, cocs)
-
-# Extract data frame from points polygon
-# tract_df <- data.frame(tract_centroids_final@data)
-
-# Add tract IDS to CoC-tract dataset and get rid of unnecessary colums
-# Create a flag for CoCs that are in the HUD shapelie
-# tract_coc_join <- cbind(tr_coc, tract_centroids) #%>%
-  # dplyr::select(-c(Shape_Length, isCentroid, INTPTLON, INTPTLAT,  ALAND, AWATER)) %>%
-  # mutate(in_shapefile = "Yes")
 
 tract_coc_join <- st_join(cocs, tract_centroids,join=st_intersects, left = TRUE) %>%
-  dplyr::select(-c(Shape_Length, INTPTLON, INTPTLAT,  ALAND, AWATER)) %>%
+  dplyr::select(-c(Shape_Length, INTPTLO, INTPTLA,  ALAND, AWATER)) %>%
   mutate(in_shapefile = "Yes")
 
 st_geometry(tract_coc_join) <- NULL
@@ -244,10 +164,6 @@ names(tract_coc_final) <- c("coc_number",
 #  Step 5:  Output file 
 ################################################################################
 write.csv(tract_coc_final, file = tract_coc_output, row.names = FALSE)
-
-save(tract_centroids, file = centroids_file) # TODO: Remove this
-write_sf(obj = tract_centroids, dsn = output_location, layer = "centroid",
-                     driver = "ESRI Shapefile") # TODO: Remove this
 
 # remove all files
 rm(list = ls())
